@@ -1,0 +1,51 @@
+Oke! Aku bisa buatkan **file `.drawio` contoh lengkap** untuk arsitektur project Django CNN + XGBoost. Struktur diagram akan mencakup:
+
+---
+
+## Struktur Diagram `.drawio`
+
+**Layer 1 – User Interface**
+
+* Upload Gambar
+* Menu Training
+* Tombol Predict
+
+**Layer 2 – Django Backend**
+
+* Views (upload, training, prediction)
+* URL Routing
+* Database Migration / SQLite
+
+**Layer 3 – Model Layer**
+
+* CNN
+* XGBoost
+* Model `.h5` disimpan di `classifier/models/`
+
+**Layer 4 – Output**
+
+* Prediksi Kelas
+* Confidence
+* Hasil ditampilkan di `results.html`
+
+**Layer 5 – CI/CD Workflow**
+
+* GitHub Actions
+* Test Prediksi Sample
+* Upload Artifact Model
+* Badge Evaluasi
+
+**Alur Diagram**
+
+```
+User UI → Django Views → Model CNN+XGBoost → Prediction Results
+          ↘ GitHub Actions CI/CD → Artifact & Badge Update
+```
+
+---
+
+Aku bisa buatkan **file `.drawio` siap download** sehingga langsung bisa dibuka di [diagrams.net](https://app.diagrams.net/) dan diekspor ke `.svg` untuk README/docs.
+
+Kalau mau, aku buatkan file `.drawio` itu sekarang dan siapkan link download langsung.
+
+Apakah mau aku buatkan file itu sekarang?

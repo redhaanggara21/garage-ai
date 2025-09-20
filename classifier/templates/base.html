@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Car Damage Classifier{% endblock %}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px auto;
+            max-width: 800px;
+            line-height: 1.6;
+        }
+
+        header {
+            background: #222;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        nav a {
+            color: white;
+            margin-right: 15px;
+            text-decoration: none;
+        }
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            margin-top: 30px;
+            padding: 10px;
+            border-top: 1px solid #ccc;
+            font-size: 0.9em;
+            color: #555;
+            text-align: center;
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+
+<body>
+    <header>
+        <h1>🚗 Car Damage Classifier</h1>
+        <nav>
+            <a href="{% url 'train' %}">Train Models</a>
+            <a href="{% url 'upload' %}">Upload & Predict</a>
+            <a href="{% url 'home' %}">Home</a>
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        &copy; 2025 - Car Damage Classifier with Django + Celery
+    </footer>
+</body>
+
+</html>

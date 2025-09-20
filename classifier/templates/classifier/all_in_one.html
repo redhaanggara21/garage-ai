@@ -1,0 +1,104 @@
+<!-- All-in-One Page: Upload + Training + Evaluation -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ML Dashboard</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        .progress-container {
+            width: 100%;
+            background: #ddd;
+            margin-top: 10px;
+        }
+
+        .progress-bar {
+            width: 0;
+            height: 20px;
+            background: #4caf50;
+            text-align: center;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>ML Dashboard</h1>
+
+    <h2>Upload Images</h2>
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="file" name="images" multiple>
+        <button type="submit">Upload</button>
+    </form>
+    <div class="progress-container">
+        <div id="upload-progress" class="progress-bar">0%</div>
+    </div>
+    <div id="upload-results"></div>
+
+    <h2>Training</h2>
+    <button id="start-training">Start Training</button>
+    <button id="stop-training">Stop Training</button>
+    <div class="progress-container">
+        <div id="training-progress" class="progress-bar">0%</div>
+    </div>
+    <div id="training-results"></div>
+    <a id="download-xgb" href="{% url 'download_model' 'xgb' %}">Download XGB Model</a>
+
+    <h2>Evaluation</h2>
+    <button id="start-evaluation">Start Evaluation</button>
+    <div class="progress-container">
+        <div id="evaluation-progress" class="progress-bar">0%</div>
+    </div>
+    <div id="evaluation-results"></div>
+
+    <script>
+        function pollProgress(type, barId, resultsId) {
+            let interval = setInterval(function () {
+                $.get("{% url 'get_progress' %}?type=" + type, function (progress) {
+                    let pct = progress.progress;
+                    $("#" + barId).css("width", pct + "%").text(pct + "%");
+                    if (progress.status === "done" || progress.status === "idle" || progress.status === "stopped") {
+                        clearInterval(interval);
+                        let html = "<p>Status: " + progress.status + "</p>";
+                        if (progress.results) {
+                            html += "<ul>";
+                            progress.results.forEach(function (r) {
+                                html += "<li>" + r.filename + ": CNN=" + r.cnn_prediction + " (" + r.cnn_confidence + ") | XGB=" + r.xgb_prediction + "</li>";
+                            });
+                            html += "</ul>";
+                        }
+                        if (progress.metrics) {
+                            html += "<p>Precision: " + progress.metrics.precision + " | Recall: " + progress.metrics.recall + " | F1: " + progress.metrics.f1 + "</p>";
+                            html += "<pre>Confusion Matrix:\n" + JSON.stringify(progress.metrics.confusion_matrix, null, 2) + "</pre>";
+                        }
+                        if (progress.scatter_features) {
+                            html += "<p>Scatter points: " + progress.scatter_features.length + "</p>";
+                        }
+                        $("#" + resultsId).html(html);
+                    }
+                });
+            }, 1000);
+        }
+
+        $(document).ready(function () {
+            $("#upload-form").submit(function (e) {
+                e.preventDefault();
+                var data = new FormData(this);
+                $.ajax({
+                    url: "{% url 'upload_image' %}",
+                    type: "POST",
+                    data: data,
+                    processData: false,
+                    contentType: false,
+                    success: function () { pollProgress("upload", "upload-progress", "upload-results"); }
+                });
+            });
+            $("#start-training").click(function () { $.get("{% url 'start_training' %}", function () { pollProgress("training", "training-progress", "training-results"); }); });
+            $("#stop-training").click(function () { $.get("{% url 'stop_training' %}", function (resp) { alert(resp.message); }); });
+            $("#start-evaluation").click(function () { $.get("{% url 'start_evaluation' %}", function () { pollProgress("evaluation", "evaluation-progress", "evaluation-results"); }); });
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,180 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>K-Fold Evaluation</title>
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix"></script>
+    <style>
+        .progress-bar {
+            height: 25px;
+            background: lightblue;
+            text-align: center;
+            line-height: 25px;
+            margin-bottom: 5px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 5px;
+            text-align: center;
+        }
+
+        .metrics,
+        .confusion {
+            margin-top: 20px;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: 300px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>K-Fold Cross Validation Evaluation</h2>
+    <label for="kfold-n">Number of folds:</label>
+    <input type="number" id="kfold-n" value="5" min="2" max="10">
+    <label for="epochs">CNN Epochs:</label>
+    <input type="number" id="epochs" value="3" min="1" max="20">
+    <button id="start-kfold">Start K-Fold</button>
+
+    <div class="progress-bar" id="kfold-bar">0%</div>
+    <div id="kfold-info">Processed: 0 / 0</div>
+
+    <table id="kfold-table">
+        <thead>
+            <tr>
+                <th>Filename</th>
+                <th>Fold</th>
+                <th>True Label</th>
+                <th>CNN Pred</th>
+                <th>XGBoost Pred</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <div class="metrics" id="metrics-container"></div>
+    <div class="confusion" id="confusion-container"></div>
+    <div id="scatter-3d" style="width:100%;height:400px;margin-top:20px;"></div>
+
+    <script>
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let cookie of cookies) {
+                    cookie = cookie.trim();
+                    if (cookie.startsWith(name + '=')) { cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break; }
+                }
+            }
+            return cookieValue;
+        }
+
+        let scatterPlot = null;
+
+        document.getElementById("start-kfold").addEventListener("click", async () => {
+            const folds = document.getElementById("kfold-n").value;
+            const epochs = document.getElementById("epochs").value;
+            try {
+                await fetch("{% url 'start_kfold_evaluate' %}?k=" + folds + "&epochs=" + epochs, {
+                    method: "GET",
+                });
+                pollKFold();
+            } catch (e) { console.error(e); alert("Error starting K-Fold"); }
+        });
+
+        async function pollKFold() {
+            try {
+                const res = await fetch("{% url 'get_kfold_progress' %}");
+                const data = await res.json();
+
+                document.getElementById("kfold-bar").style.width = data.progress + "%";
+                document.getElementById("kfold-bar").innerText = data.progress + "%";
+                document.getElementById("kfold-info").innerText = `Processed: ${data.processed} / ${data.total}`;
+
+                const tbody = document.querySelector("#kfold-table tbody");
+                tbody.innerHTML = "";
+                if (data.results?.length) {
+                    data.results.forEach(r => {
+                        const tr = document.createElement("tr");
+                        tr.innerHTML = `<td>${r.filename}</td><td>${r.fold}</td><td>${r.true_label}</td><td>${r.cnn_pred}</td><td>${r.xgb_pred}</td>`;
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                // Metrics per fold
+                const metricsContainer = document.getElementById("metrics-container");
+                metricsContainer.innerHTML = "";
+                if (data.metrics?.per_fold?.length) {
+                    data.metrics.per_fold.forEach(m => {
+                        const div = document.createElement("div");
+                        div.innerHTML = `<h4>Fold ${m.fold}</h4>
+                        <p><strong>CNN:</strong> Accuracy: ${m.cnn_accuracy}, Loss: ${m.cnn_loss}, Precision: ${m.cnn_precision}, Recall: ${m.cnn_recall}, F1: ${m.cnn_f1}</p>
+                        <p><strong>XGBoost:</strong> Accuracy: ${m.xgb_accuracy}, Loss: ${m.xgb_loss}, Precision: ${m.xgb_precision}, Recall: ${m.xgb_recall}, F1: ${m.xgb_f1}</p>`;
+                        metricsContainer.appendChild(div);
+
+                        // Confusion matrix chart
+                        if (m.cnn_confusion_matrix) {
+                            const canvas = document.createElement("canvas");
+                            div.appendChild(canvas);
+                            new Chart(canvas, {
+                                type: 'matrix',
+                                data: {
+                                    datasets: [{
+                                        label: `CNN Confusion Fold ${m.fold}`,
+                                        data: m.cnn_confusion_matrix.flatMap((row, i) => row.map((v, j) => ({ x: j, y: i, v: v }))),
+                                        backgroundColor: ctx => {
+                                            const value = ctx.dataset.data[ctx.dataIndex].v;
+                                            const max = Math.max(...ctx.dataset.data.map(d => d.v));
+                                            const intensity = Math.round(255 * value / max);
+                                            return `rgb(${intensity},${255 - intensity},150)`;
+                                        },
+                                        width: ({ chart }) => chart.chartArea ? chart.chartArea.width / 3 - 1 : 50,
+                                        height: ({ chart }) => chart.chartArea ? chart.chartArea.height / 3 - 1 : 50,
+
+                                    }]
+                                },
+                                options: {
+                                    plugins: { legend: { display: false } },
+                                    scales: {
+                                        x: { type: 'linear', min: -0.5, max: 2.5 },
+                                        y: { type: 'linear', min: -0.5, max: 2.5, reverse: true }
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+
+                if (data.scatter_features?.length > 0) {
+                    const x = data.scatter_features.map(pt => pt.x);
+                    const y = data.scatter_features.map(pt => pt.y);
+                    const z = data.scatter_features.map(pt => pt.z || 0);
+                    const colors = data.scatter_features.map(pt => pt.label === 'minor' ? 'blue' : pt.label === 'moderate' ? 'orange' : 'red');
+                    const trace = { x, y, z, mode: 'markers', type: 'scatter3d', marker: { size: 4, color: colors } };
+                    const layout = { margin: { l: 0, r: 0, b: 0, t: 0 } };
+                    if (!scatterPlot) scatterPlot = Plotly.newPlot('scatter-3d', [trace], layout);
+                    else Plotly.react('scatter-3d', [trace], layout);
+                }
+
+                if (data.status !== 'done') setTimeout(pollKFold, 500);
+
+            } catch (e) { console.error(e); setTimeout(pollKFold, 1000); }
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,33 @@
+// Live update prediksi & metrics
+function handleFiles(files){
+const formData = new FormData();
+for(let i=0;i<files.length;i++) formData.append('images',files[i]); fetch('/upload-image/', {method:'POST',
+    body:formData}) .then(res=>res.json())
+    .then(data=>{
+    predictionTable.innerHTML="";
+    scatterData=[];
+    data.results.forEach(r=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.filename}</td>
+    <td>${r.cnn_prediction}</td>
+    <td>${r.cnn_confidence}</td>
+    <td>${r.xgb_prediction}</td>`;
+    predictionTable.appendChild(tr);
+
+    // Scatter 3D
+    scatterData.push({
+    x: Math.random(), y: Math.random(), z: Math.random(),
+    name:r.cnn_prediction,
+    marker:{size:5, color:r.cnn_prediction==="minor"?"blue":r.cnn_prediction==="moderate"?"orange":"red"},
+    type:'scatter3d', mode:'markers'
+    });
+    });
+    Plotly.newPlot('scatter-3d', scatterData, {margin:{l:0,r:0,b:0,t:0}});
+
+    // Update metrics table
+    document.getElementById("metric-accuracy").innerText = data.metrics.accuracy;
+    document.getElementById("metric-precision").innerText = data.metrics.precision;
+    document.getElementById("metric-recall").innerText = data.metrics.recall;
+    document.getElementById("metric-f1").innerText = data.metrics.f1;
+    });
+    }

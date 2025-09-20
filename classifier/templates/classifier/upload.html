@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Upload & Evaluate</title>
+
+    <!-- Chart.js + Matrix Plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix"></script>
+    <!-- Plotly 3D Scatter -->
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+
+    <style>
+        .progress-bar {
+            height: 25px;
+            background-color: lightblue;
+            text-align: center;
+            line-height: 25px;
+            margin-bottom: 5px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 5px;
+            text-align: center;
+        }
+
+        td img,
+        td video,
+        td audio {
+            max-width: 120px;
+            height: auto;
+            border-radius: 5px;
+        }
+
+        td video,
+        td audio {
+            max-height: 100px;
+        }
+
+        canvas {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Upload Files (Image / Video / Audio)</h2>
+    <form id="upload-form" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="file" name="files" multiple accept="image/*,video/*,audio/*">
+        <button type="submit">Upload</button>
+    </form>
+
+    <div class="progress-bar" id="upload-bar">0%</div>
+    <div id="upload-info">Processed: 0 / 0</div>
+
+    <table id="results-table">
+        <thead>
+            <tr>
+                <th>Preview</th>
+                <th>Filename</th>
+                <th>CNN Prediction</th>
+                <th>CNN Confidence</th>
+                <th>XGBoost Prediction</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <canvas id="metrics-chart" width="400" height="200"></canvas>
+    <canvas id="confusion-chart" width="400" height="200"></canvas>
+    <div id="scatter-3d" style="width:100%;height:400px;"></div>
+
+    <hr>
+    <h2>Evaluation</h2>
+    <button id="start-eval">Start Evaluation</button>
+    <div class="progress-bar" id="eval-bar">0%</div>
+    <div id="eval-info">Processed: 0 / 0</div>
+
+    <script>
+        let metricsChart = null;
+        let confusionChart = null;
+        let uploadPlot = null;
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let cookie of cookies) {
+                    cookie = cookie.trim();
+                    if (cookie.startsWith(name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        document.getElementById("upload-form").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const csrftoken = getCookie('csrftoken');
+            try {
+                const res = await fetch("{% url 'upload-process' %}", {
+                    method: "POST",
+                    body: formData,
+                    headers: { 'X-CSRFToken': csrftoken }
+                });
+                const data = await res.json();
+                if (!res.ok) throw data;
+                pollUploadProgress();
+            } catch (err) {
+                console.error("Upload failed:", err);
+                alert("Upload error");
+            }
+        });
+
+        async function pollUploadProgress() {
+            try {
+                const res = await fetch('/get-progress-upload/');
+                const data = await res.json();
+
+                // Progress bar
+                const bar = document.getElementById("upload-bar");
+                bar.style.width = data.progress + "%";
+                bar.innerText = data.progress + "%";
+                document.getElementById("upload-info").innerText = `Processed: ${data.processed} / ${data.total}`;
+
+                // Results table
+                const tbody = document.querySelector("#results-table tbody");
+                tbody.innerHTML = "";
+                data.results.forEach(r => {
+                    let preview = "-";
+                    if (r.file_type === "image") {
+                        preview = `<img src="${r.annotated_path}" alt="preview">`;
+                    } else if (r.file_type === "video") {
+                        preview = `<video src="${r.annotated_path}" controls></video>`;
+                    } else if (r.file_type === "audio") {
+                        preview = `<audio src="${r.annotated_path}" controls></audio>`;
+                    }
+
+                    const cnnPred = (r.file_type === "image" || r.file_type === "video") ? r.cnn_prediction : "-";
+                    const cnnConf = (r.file_type === "image" || r.file_type === "video") ? r.cnn_confidence.toFixed(2) : "-";
+
+                    const tr = document.createElement("tr");
+                    tr.innerHTML = `
+                        <td>${preview}</td>
+                        <td>${r.filename}</td>
+                        <td>${cnnPred}</td>
+                        <td>${cnnConf}</td>
+                        <td>${r.xgb_prediction}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                // Metrics Chart
+                if (data.metrics) {
+                    const metricsData = [data.metrics.precision || 0, data.metrics.recall || 0, data.metrics.f1 || 0];
+                    const labels = ["Precision", "Recall", "F1-score"];
+                    const ctx = document.getElementById('metrics-chart').getContext('2d');
+                    if (!metricsChart) {
+                        metricsChart = new Chart(ctx, {
+                            type: 'bar',
+                            data: { labels, datasets: [{ label: 'Metrics', data: metricsData, backgroundColor: ['green', 'orange', 'purple'] }] },
+                            options: { responsive: true, animation: false, scales: { y: { beginAtZero: true, max: 1 } } }
+                        });
+                    } else {
+                        metricsChart.data.datasets[0].data = metricsData;
+                        metricsChart.update();
+                    }
+                }
+
+                // Confusion Matrix
+                if (data.metrics?.confusion_matrix) {
+                    const cm = data.metrics.confusion_matrix;
+                    const cmData = [];
+                    const bgColors = [];
+                    for (let i = 0; i < cm.length; i++)
+                        for (let j = 0; j < cm[i].length; j++) {
+                            cmData.push({ x: j.toString(), y: i.toString(), v: cm[i][j] });
+                            bgColors.push(`rgba(255,0,0,${Math.min(cm[i][j] / 10, 1)})`);
+                        }
+                    const ctxCM = document.getElementById('confusion-chart').getContext('2d');
+                    if (!confusionChart) {
+                        confusionChart = new Chart(ctxCM, {
+                            type: 'matrix',
+                            data: { datasets: [{ label: 'Confusion', data: cmData, backgroundColor: bgColors, width: () => 40, height: () => 40 }] },
+                            options: { responsive: true, plugins: { legend: { display: false } } }
+                        });
+                    } else {
+                        confusionChart.data.datasets[0].data = cmData;
+                        confusionChart.data.datasets[0].backgroundColor = bgColors;
+                        confusionChart.update();
+                    }
+                }
+
+                // Scatter 3D with Plotly config
+                if (data.scatter_features?.length > 0) {
+                    const x = data.scatter_features.map(pt => pt.x);
+                    const y = data.scatter_features.map(pt => pt.y);
+                    const z = data.scatter_features.map(pt => pt.z || 0);
+                    const colors = data.scatter_features.map(pt => pt.label === 'minor' ? 'blue' : pt.label === 'moderate' ? 'orange' : 'red');
+                    const trace = { x, y, z, mode: 'markers', type: 'scatter3d', marker: { size: 4, color: colors } };
+                    const layout = { margin: { l: 0, r: 0, b: 0, t: 0 } };
+                    const config = { responsive: true, staticPlot: false, scrollZoom: true, displayModeBar: true, plotGlPixelRatio: 2 };
+
+                    if (!uploadPlot)
+                        uploadPlot = Plotly.newPlot('scatter-3d', [trace], layout, config);
+                    else
+                        Plotly.react('scatter-3d', [trace], layout, config);
+                }
+
+                if (data.status !== "done") setTimeout(pollUploadProgress, 500);
+            } catch (e) {
+                console.error(e);
+                setTimeout(pollUploadProgress, 1000);
+            }
+        }
+    </script>
+</body>
+
+</html>

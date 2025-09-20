@@ -1,0 +1,75 @@
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
+<script>
+    let lossChart, accChart, scatterScene, scatterCamera, scatterRenderer;
+
+    function initCharts() {
+        const ctxLoss = document.getElementById('lossChart').getContext('2d');
+        const ctxAcc = document.getElementById('accChart').getContext('2d');
+
+        lossChart = new Chart(ctxLoss, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Loss', data: [], borderColor: 'red', fill: false }] },
+            options: { responsive: true }
+        });
+
+        accChart = new Chart(ctxAcc, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Accuracy', data: [], borderColor: 'green', fill: false }] },
+            options: { responsive: true }
+        });
+
+        // Setup 3D scatter
+        scatterScene = new THREE.Scene();
+        scatterCamera = new THREE.PerspectiveCamera(75, 400 / 400, 0.1, 1000);
+        scatterRenderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scatter3D') });
+        scatterRenderer.setSize(400, 400);
+        scatterCamera.position.z = 50;
+        scatterScene.add(new THREE.AxesHelper(20));
+    }
+
+    function updateCharts(progressData) {
+        const epoch = progressData.epoch;
+
+        lossChart.data.labels.push(epoch);
+        lossChart.data.datasets[0].data.push(progressData.loss);
+        lossChart.update();
+
+        accChart.data.labels.push(epoch);
+        accChart.data.datasets[0].data.push(progressData.accuracy);
+        accChart.update();
+
+        // Update 3D scatter
+        scatterScene.children.filter(c => c.userData.type === 'point').forEach(c => scatterScene.remove(c));
+        progressData.scatter_features.forEach(f => {
+            const geometry = new THREE.SphereGeometry(0.5, 8, 8);
+            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const sphere = new THREE.Mesh(geometry, material);
+            sphere.position.set(f[0], f[1], f[2]);
+            sphere.userData.type = 'point';
+            scatterScene.add(sphere);
+        });
+        scatterRenderer.render(scatterScene, scatterCamera);
+    }
+
+    function pollTrainingProgress() {
+        fetch('/training/progress/')
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'training') {
+                    updateCharts(data);
+                    setTimeout(pollTrainingProgress, 1000); // polling tiap 1 detik
+                }
+            })
+            .catch(err => console.error(err));
+    }
+
+    window.onload = () => {
+        initCharts();
+        pollTrainingProgress();
+    };
+</script>
+
+<canvas id="lossChart" width="400" height="200"></canvas>
+<canvas id="accChart" width="400" height="200"></canvas>
+<canvas id="scatter3D" width="400" height="400"></canvas>

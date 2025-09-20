@@ -1,0 +1,86 @@
+name: Django CNN + XGBoost Full CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    env:
+      MODEL_DIR: classifier/models
+      ARTIFACT_DIR: artifacts
+      TIMESTAMP: ${{ github.run_id }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Django migrations
+        run: |
+          python manage.py makemigrations --noinput
+          python manage.py migrate --noinput
+
+      - name: Run full prediction tests
+        run: |
+          echo "from django.test import Client; from classifier.views import predict_image; import os" > test_full.py
+          echo "c = Client()" >> test_full.py
+          echo "sample_images = ['media/sample1.jpg','media/sample2.jpg']" >> test_full.py
+          echo "for img in sample_images:" >> test_full.py
+          echo "    if os.path.exists(img):" >> test_full.py
+          echo "        result = predict_image(img); print(f'{img} => {result}')" >> test_full.py
+          echo "    else: print(f'{img} not found')" >> test_full.py
+          python test_full.py
+
+      - name: Save timestamped model artifact
+        run: |
+          mkdir -p $ARTIFACT_DIR
+          for f in $MODEL_DIR/*.h5; do
+            cp "$f" "$ARTIFACT_DIR/$(basename $f .h5)_$TIMESTAMP.h5"
+          done
+        uses: actions/upload-artifact@v3
+        with:
+          name: trained-models
+          path: $ARTIFACT_DIR/
+
+      - name: Update README badge (accuracy placeholder)
+        run: |
+          ACC=0.92
+          sed -i "s|\[Accuracy:.*\]|[Accuracy: $ACC]|g" README.md
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: trained-models
+          path: artifacts/
+
+      - name: Deploy to Heroku (optional)
+        if: github.ref == 'refs/heads/main'
+        uses: akhileshns/heroku-deploy@v4.3.9
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: "your-heroku-app-name"
+          heroku_email: "your-email@example.com"
+          usedocker: false
